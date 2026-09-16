@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import { Book, Bookmark, Friendship, Profile, Quote, Recommendation, Shelf } from "@/lib/types";
 import { AppShell, Stats } from "@/components/AppShell";
 import { Bookcase } from "@/components/Bookcase";
+import { BookList } from "@/components/BookList";
 import { CoverModal } from "@/components/CoverModal";
 
 type FriendCard = {
@@ -13,6 +14,9 @@ type FriendCard = {
   bookCount: number;
   previewColors: string[];
 };
+
+type ViewMode = "scaffali" | "elenco";
+const VIEW_MODE_KEY = "joshly-view-mode";
 
 export default function FriendsPage() {
   const supabase = useMemo(() => createClient(), []);
@@ -38,6 +42,30 @@ export default function FriendsPage() {
   const [friendMarks, setFriendMarks] = useState<Record<string, Bookmark[]>>({});
   const [coverBookId, setCoverBookId] = useState<string | null>(null);
   const [coverOpen, setCoverOpen] = useState(false);
+  const [addedBookIds, setAddedBookIds] = useState<Set<string>>(new Set());
+  const [viewMode, setViewMode] = useState<ViewMode>("scaffali");
+
+  useEffect(() => {
+    // Stessa preferenza di vista salvata dalla pagina "La mia libreria",
+    // così resta coerente in tutto il sito.
+    try {
+      const saved = localStorage.getItem(VIEW_MODE_KEY);
+      /* eslint-disable react-hooks/set-state-in-effect */
+      if (saved === "elenco" || saved === "scaffali") setViewMode(saved);
+      /* eslint-enable react-hooks/set-state-in-effect */
+    } catch {
+      // niente di grave: resta il default.
+    }
+  }, []);
+
+  function changeViewMode(mode: ViewMode) {
+    setViewMode(mode);
+    try {
+      localStorage.setItem(VIEW_MODE_KEY, mode);
+    } catch {
+      // niente di grave se non si salva.
+    }
+  }
 
   function openCover(bookId: string) {
     setCoverBookId(bookId);
@@ -199,6 +227,34 @@ export default function FriendsPage() {
     setFriendShelves([]);
     setCoverOpen(false);
     setCoverBookId(null);
+    setAddedBookIds(new Set());
+  }
+
+  async function addFriendBookToLibrary(book: Book) {
+    if (!userId || addedBookIds.has(book.id)) return;
+    // Proviamo a mettere il libro sullo scaffale con lo stesso nome che ha
+    // dal tuo amico (es. "Teologia"), altrimenti finisce su "Altro".
+    const friendShelf = friendShelves.find((s) => s.id === book.shelf_id);
+    const matchingShelf =
+      (friendShelf && myShelves.find((s) => s.name === friendShelf.name)) ||
+      myShelves.find((s) => s.name === "Altro");
+    if (!matchingShelf) return;
+    const { error } = await supabase.from("books").insert({
+      owner_id: userId,
+      shelf_id: matchingShelf.id,
+      title: book.title,
+      author: book.author,
+      pages: book.pages,
+      status: "desiderio",
+      rating: 0,
+      current_page: 0,
+      review: "",
+      cover_url: book.cover_url,
+      isbn: book.isbn,
+    });
+    if (!error) {
+      setAddedBookIds((prev) => new Set(prev).add(book.id));
+    }
   }
 
   async function recommendBook(book: Book) {
@@ -266,15 +322,50 @@ export default function FriendsPage() {
           </button>
           <h2 style={{ margin: "10px 0 4px" }}>Scaffale di {viewingFriend.display_name}</h2>
           <p style={{ color: "var(--ink-soft)", fontSize: "0.85rem", marginBottom: 20 }}>
-            Sola lettura — clicca un libro per vederlo e, se vuoi, consigliarlo.
+            Sola lettura — clicca un libro per vederlo, aggiungerlo alla tua lista o consigliarlo.
           </p>
-          <Bookcase
-            shelves={friendShelves}
-            booksByShelf={friendBooksByShelf}
-            readOnly
-            onOpenBook={(b) => openCover(b.id)}
-            emptyMessage="Nessun libro qui."
-          />
+
+          <div className="view-toggle" style={{ marginBottom: 16 }}>
+            <button
+              type="button"
+              className={viewMode === "scaffali" ? "active" : ""}
+              onClick={() => changeViewMode("scaffali")}
+              aria-label="Vista a scaffali"
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M4 4v16M12 4v16M20 4v16M4 4h16M4 20h16" />
+              </svg>
+              Scaffali
+            </button>
+            <button
+              type="button"
+              className={viewMode === "elenco" ? "active" : ""}
+              onClick={() => changeViewMode("elenco")}
+              aria-label="Vista a elenco"
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" strokeLinecap="round" />
+              </svg>
+              Elenco
+            </button>
+          </div>
+
+          {viewMode === "scaffali" ? (
+            <Bookcase
+              shelves={friendShelves}
+              booksByShelf={friendBooksByShelf}
+              readOnly
+              onOpenBook={(b) => openCover(b.id)}
+              emptyMessage="Nessun libro qui."
+            />
+          ) : (
+            <BookList
+              books={friendBooks}
+              shelves={friendShelves}
+              onOpenBook={(b) => openCover(b.id)}
+              emptyMessage="Nessun libro qui."
+            />
+          )}
         </AppShell>
 
         <CoverModal
@@ -288,6 +379,8 @@ export default function FriendsPage() {
           readOnly
           onClose={closeCover}
           onRecommendToFriend={() => coverBook && recommendBook(coverBook)}
+          onAddToLibrary={() => coverBook && addFriendBookToLibrary(coverBook)}
+          addedToLibrary={coverBook ? addedBookIds.has(coverBook.id) : false}
         />
         {coverOpen && <div className="scrim open" onClick={closeCover} />}
       </>

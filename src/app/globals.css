@@ -500,6 +500,144 @@ header.top {
   font-style: italic;
 }
 
+/* ---------- Vista a elenco (alternativa allo scaffale) ---------- */
+.view-toggle {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  flex: none;
+}
+.view-toggle button {
+  background: var(--bg-raised);
+  border: none;
+  color: var(--ink-faint);
+  padding: 9px 14px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.view-toggle button + button {
+  border-left: 1px solid var(--line);
+}
+.view-toggle button.active {
+  background: color-mix(in srgb, var(--gold) 16%, var(--bg-raised));
+  color: var(--gold);
+}
+.view-toggle button svg {
+  width: 14px;
+  height: 14px;
+}
+
+.book-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.list-row {
+  display: grid;
+  grid-template-columns: 38px 1fr auto auto auto;
+  align-items: center;
+  gap: 14px;
+  padding: 9px 14px;
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease;
+}
+.list-row:hover {
+  border-color: color-mix(in srgb, var(--sc) 70%, var(--line));
+  background: color-mix(in srgb, var(--sc) 9%, var(--bg-raised));
+  transform: translateX(2px);
+}
+.list-cover {
+  width: 34px;
+  height: 50px;
+  border-radius: 3px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(160deg, color-mix(in srgb, var(--sc) 55%, var(--bg-sunken)), var(--bg-sunken));
+  color: var(--sc);
+  flex: none;
+}
+.list-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.list-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.list-title {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 0.94rem;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.list-author {
+  font-size: 0.78rem;
+  color: var(--ink-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.list-shelf {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.72rem;
+  color: var(--ink-faint);
+  white-space: nowrap;
+  flex: none;
+}
+.list-shelf svg {
+  stroke: var(--sc);
+  flex: none;
+}
+.list-status {
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 5px 11px;
+  border-radius: 20px;
+  border: 1px solid var(--line);
+  color: var(--ink-faint);
+  white-space: nowrap;
+  flex: none;
+}
+.list-row.st-letto .list-status {
+  border-color: var(--sc);
+  color: var(--sc);
+}
+.list-row.st-lettura .list-status {
+  border-color: var(--sage);
+  color: var(--sage);
+}
+.list-row.st-desiderio .list-status {
+  border-style: dashed;
+}
+.list-stars {
+  font-size: 0.72rem;
+  color: var(--gold);
+  white-space: nowrap;
+  min-width: 60px;
+  text-align: right;
+  flex: none;
+}
+
 /* ---------- Spine ---------- */
 .spine {
   --sc: var(--gold);
@@ -1135,6 +1273,23 @@ footer.site-footer {
 .text-btn:hover {
   color: var(--ink);
 }
+.secondary-btn {
+  background: none;
+  border: 1px solid var(--sage);
+  color: var(--sage);
+  padding: 12px 20px;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 0.88rem;
+}
+.secondary-btn:hover {
+  background: color-mix(in srgb, var(--sage) 14%, transparent);
+}
+.secondary-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 .error-text {
   color: var(--clay);
   font-size: 0.82rem;
@@ -1530,5 +1685,13 @@ footer.site-footer {
   }
   .row2 {
     grid-template-columns: 1fr;
+  }
+  .list-row {
+    grid-template-columns: 34px 1fr auto;
+    row-gap: 4px;
+  }
+  .list-shelf,
+  .list-status {
+    display: none;
   }
 }

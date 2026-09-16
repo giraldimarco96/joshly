@@ -5,11 +5,14 @@ import { createClient } from "@/lib/supabase/client";
 import { Book, BookStatus, Bookmark, Quote, STATUSES, Shelf } from "@/lib/types";
 import { AppShell, Stats } from "@/components/AppShell";
 import { Bookcase } from "@/components/Bookcase";
+import { BookList } from "@/components/BookList";
 import { AddBookModal, NewBookInput } from "@/components/AddBookModal";
 import { NewShelfModal } from "@/components/NewShelfModal";
 import { CoverModal } from "@/components/CoverModal";
 
 type SortMode = "recenti" | "titolo" | "autore" | "voto" | "pagine";
+type ViewMode = "scaffali" | "elenco";
+const VIEW_MODE_KEY = "joshly-view-mode";
 
 export default function LibraryPage() {
   const supabase = useMemo(() => createClient(), []);
@@ -25,6 +28,7 @@ export default function LibraryPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<BookStatus | "tutti">("tutti");
   const [sortMode, setSortMode] = useState<SortMode>("recenti");
+  const [viewMode, setViewMode] = useState<ViewMode>("scaffali");
 
   const [addOpen, setAddOpen] = useState(false);
   const [newShelfOpen, setNewShelfOpen] = useState(false);
@@ -36,6 +40,28 @@ export default function LibraryPage() {
   function openCover(bookId: string) {
     setCoverBookId(bookId);
     setCoverOpen(true);
+  }
+
+  useEffect(() => {
+    // Preferenza personale di visualizzazione (scaffale o elenco), salvata solo
+    // in questo browser: ognuno può scegliere quella che preferisce.
+    try {
+      const saved = localStorage.getItem(VIEW_MODE_KEY);
+      /* eslint-disable react-hooks/set-state-in-effect */
+      if (saved === "elenco" || saved === "scaffali") setViewMode(saved);
+      /* eslint-enable react-hooks/set-state-in-effect */
+    } catch {
+      // localStorage non disponibile (es. navigazione privata): va bene lo stesso, resta il default.
+    }
+  }, []);
+
+  function changeViewMode(mode: ViewMode) {
+    setViewMode(mode);
+    try {
+      localStorage.setItem(VIEW_MODE_KEY, mode);
+    } catch {
+      // niente di grave se non si salva: al prossimo giro riparte dal default.
+    }
   }
 
   function closeCover() {
@@ -109,26 +135,29 @@ export default function LibraryPage() {
     return { letti: letti.length, pagineLette, votoMedio, inLettura: lettura.length };
   }, [books]);
 
-  const booksByShelf = useMemo(() => {
+  const filteredSortedBooks = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();
     const filtered = books.filter((b) => {
       const matchSearch = !term || (b.title + " " + b.author).toLowerCase().includes(term);
       const matchStatus = statusFilter === "tutti" || b.status === statusFilter;
       return matchSearch && matchStatus;
     });
-    const sorted = filtered.slice().sort((a, b) => {
+    return filtered.slice().sort((a, b) => {
       if (sortMode === "titolo") return a.title.localeCompare(b.title);
       if (sortMode === "autore") return a.author.localeCompare(b.author);
       if (sortMode === "voto") return b.rating - a.rating;
       if (sortMode === "pagine") return (b.pages || 0) - (a.pages || 0);
       return 0; // recenti: già ordinati per created_at desc dalla query
     });
+  }, [books, searchTerm, statusFilter, sortMode]);
+
+  const booksByShelf = useMemo(() => {
     const map: Record<string, Book[]> = {};
-    sorted.forEach((b) => {
+    filteredSortedBooks.forEach((b) => {
       (map[b.shelf_id] ||= []).push(b);
     });
     return map;
-  }, [books, searchTerm, statusFilter, sortMode]);
+  }, [filteredSortedBooks]);
 
   const statusCounts = useMemo(() => {
     const c: Record<string, number> = { tutti: books.length };
@@ -296,6 +325,32 @@ export default function LibraryPage() {
               <option value="pagine">Pagine</option>
             </select>
           </div>
+          <div className="view-toggle" role="group" aria-label="Modalità di visualizzazione">
+            <button
+              type="button"
+              className={viewMode === "scaffali" ? "active" : ""}
+              onClick={() => changeViewMode("scaffali")}
+              title="Vista a scaffali"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round">
+                <path d="M4 4v16M20 4v16M4 12h16" />
+              </svg>
+              Scaffali
+            </button>
+            <button
+              type="button"
+              className={viewMode === "elenco" ? "active" : ""}
+              onClick={() => changeViewMode("elenco")}
+              title="Vista a elenco"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round">
+                <line x1="4" y1="6" x2="20" y2="6" />
+                <line x1="4" y1="12" x2="20" y2="12" />
+                <line x1="4" y1="18" x2="20" y2="18" />
+              </svg>
+              Elenco
+            </button>
+          </div>
           <button className="btn-add" onClick={() => setAddOpen(true)}>
             + Aggiungi libro
           </button>
@@ -303,16 +358,25 @@ export default function LibraryPage() {
 
         {error && <p className="error-text">{error}</p>}
 
-        <Bookcase
-          shelves={shelves}
-          booksByShelf={booksByShelf}
-          animEnterId={enteringId}
-          animLeaveId={leavingId}
-          onOpenBook={(b) => openCover(b.id)}
-          onDeleteShelf={handleDeleteShelf}
-          onOpenNewShelf={() => setNewShelfOpen(true)}
-          emptyMessage={searchTerm || statusFilter !== "tutti" ? "Nessun libro corrisponde qui." : "Ancora nessun libro qui."}
-        />
+        {viewMode === "scaffali" ? (
+          <Bookcase
+            shelves={shelves}
+            booksByShelf={booksByShelf}
+            animEnterId={enteringId}
+            animLeaveId={leavingId}
+            onOpenBook={(b) => openCover(b.id)}
+            onDeleteShelf={handleDeleteShelf}
+            onOpenNewShelf={() => setNewShelfOpen(true)}
+            emptyMessage={searchTerm || statusFilter !== "tutti" ? "Nessun libro corrisponde qui." : "Ancora nessun libro qui."}
+          />
+        ) : (
+          <BookList
+            books={filteredSortedBooks}
+            shelves={shelves}
+            onOpenBook={(b) => openCover(b.id)}
+            emptyMessage={searchTerm || statusFilter !== "tutti" ? "Nessun libro corrisponde qui." : "Ancora nessun libro qui."}
+          />
+        )}
       </AppShell>
 
       <AddBookModal open={addOpen} shelves={shelves} onClose={() => setAddOpen(false)} onSave={handleAddBook} />
