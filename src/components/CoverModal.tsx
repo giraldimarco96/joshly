@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Book, Bookmark, Quote, STATUSES, statusLabel } from "@/lib/types";
 import { ShelfIcon } from "@/lib/icons";
 import { starsString } from "@/lib/spineStyle";
+import { createClient } from "@/lib/supabase/client";
 
 export function CoverModal({
   open,
@@ -14,6 +15,7 @@ export function CoverModal({
   quotes,
   bookmarks,
   readOnly = false,
+  userId,
   onClose,
   onUpdate,
   onDelete,
@@ -33,6 +35,7 @@ export function CoverModal({
   quotes: Quote[];
   bookmarks: Bookmark[];
   readOnly?: boolean;
+  userId?: string | null;
   onClose: () => void;
   onUpdate?: (patch: Partial<Book>) => void;
   onDelete?: () => void;
@@ -49,6 +52,43 @@ export function CoverModal({
   const [markPage, setMarkPage] = useState("");
   const [markNote, setMarkNote] = useState("");
   const [pageEdit, setPageEdit] = useState("");
+  const [coverUploading, setCoverUploading] = useState(false);
+  const [coverError, setCoverError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  async function handleCoverFile(file: File | null) {
+    if (!file || !book) return;
+    setCoverError(null);
+    if (!file.type.startsWith("image/")) {
+      setCoverError("Scegli un file immagine (JPG, PNG…).");
+      return;
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      setCoverError("L'immagine è troppo grande (max 8 MB).");
+      return;
+    }
+    setCoverUploading(true);
+    try {
+      const supabase = createClient();
+      const owner = userId || (await supabase.auth.getUser()).data.user?.id;
+      if (!owner) throw new Error("Devi essere autenticato per caricare una copertina.");
+      const ext = file.name.split(".").pop()?.toLowerCase().replace(/[^a-z0-9]/g, "") || "jpg";
+      const path = `${owner}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+      const { error: uploadError } = await supabase.storage.from("covers").upload(path, file, {
+        cacheControl: "3600",
+        upsert: false,
+      });
+      if (uploadError) throw uploadError;
+      const { data } = supabase.storage.from("covers").getPublicUrl(path);
+      onUpdate?.({ cover_url: data.publicUrl });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setCoverError("Caricamento non riuscito: " + message);
+    } finally {
+      setCoverUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
 
   useEffect(() => {
     if (!book) return;
@@ -75,6 +115,23 @@ export function CoverModal({
           <div className="cover-emblem">
             {book.cover_url ? <img src={book.cover_url} alt="" /> : <ShelfIcon name={shelfIcon} size={22} />}
           </div>
+
+          {!readOnly && onUpdate && (
+            <div className="cover-change">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                style={{ display: "none" }}
+                onChange={(e) => handleCoverFile(e.target.files?.[0] || null)}
+              />
+              <button type="button" className="text-btn" onClick={() => fileInputRef.current?.click()} disabled={coverUploading}>
+                {coverUploading ? "Caricamento…" : book.cover_url ? "Cambia copertina" : "Aggiungi copertina"}
+              </button>
+              {coverError && <p className="error-text" style={{ margin: "4px 0 0" }}>{coverError}</p>}
+            </div>
+          )}
+
           <h3 className="cover-title">{book.title}</h3>
           <div className="cover-author">{book.author}</div>
 

@@ -1402,6 +1402,13 @@ footer.site-footer {
   height: 100%;
   object-fit: cover;
 }
+.cover-change {
+  text-align: center;
+  margin: -8px 0 10px;
+}
+.cover-change .text-btn {
+  font-size: 0.74rem;
+}
 .cover-title {
   margin: 0 0 4px;
   font-size: 1.3rem;

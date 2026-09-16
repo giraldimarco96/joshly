@@ -396,6 +396,7 @@ export default function LibraryPage() {
         color={coverShelf?.color || "#C9A24B"}
         quotes={coverBook ? quotesByBook[coverBook.id] || [] : []}
         bookmarks={coverBook ? bookmarksByBook[coverBook.id] || [] : []}
+        userId={userId}
         onClose={closeCover}
         onUpdate={(patch) => coverBook && handleUpdateBook(coverBook.id, patch)}
         onDelete={() => coverBook && handleDeleteBook(coverBook.id)}
