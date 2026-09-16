@@ -1,0 +1,429 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { createClient } from "@/lib/supabase/client";
+import { Book, Bookmark, Friendship, Profile, Quote, Recommendation, Shelf } from "@/lib/types";
+import { AppShell, Stats } from "@/components/AppShell";
+import { Bookcase } from "@/components/Bookcase";
+import { CoverModal } from "@/components/CoverModal";
+
+type FriendCard = {
+  profile: Profile;
+  friendshipId: string;
+  bookCount: number;
+  previewColors: string[];
+};
+
+export default function FriendsPage() {
+  const supabase = useMemo(() => createClient(), []);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [myShelves, setMyShelves] = useState<Shelf[]>([]);
+  const [myBooks, setMyBooks] = useState<Book[]>([]);
+
+  const [incoming, setIncoming] = useState<{ friendship: Friendship; profile: Profile }[]>([]);
+  const [outgoing, setOutgoing] = useState<{ friendship: Friendship; profile: Profile }[]>([]);
+  const [friends, setFriends] = useState<FriendCard[]>([]);
+  const [recommendations, setRecommendations] = useState<{ rec: Recommendation; from: Profile | null }[]>([]);
+
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteMsg, setInviteMsg] = useState<string | null>(null);
+  const [inviteBusy, setInviteBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  // Vista scaffale di un amico
+  const [viewingFriend, setViewingFriend] = useState<Profile | null>(null);
+  const [friendShelves, setFriendShelves] = useState<Shelf[]>([]);
+  const [friendBooks, setFriendBooks] = useState<Book[]>([]);
+  const [friendQuotes, setFriendQuotes] = useState<Record<string, Quote[]>>({});
+  const [friendMarks, setFriendMarks] = useState<Record<string, Bookmark[]>>({});
+  const [coverBookId, setCoverBookId] = useState<string | null>(null);
+  const [coverOpen, setCoverOpen] = useState(false);
+  const [addedBookIds, setAddedBookIds] = useState<Set<string>>(new Set());
+
+  function openCover(bookId: string) {
+    setCoverBookId(bookId);
+    setCoverOpen(true);
+  }
+
+  function closeCover() {
+    // Chiude prima con l'animazione (rotateY), e solo dopo la transizione
+    // svuota il libro mostrato: così la copertina si "richiude" invece di sparire di colpo.
+    setCoverOpen(false);
+    setTimeout(() => setCoverBookId(null), 520);
+  }
+
+  async function loadAll() {
+    const { data: userData } = await supabase.auth.getUser();
+    const user = userData.user;
+    if (!user) return;
+    setUserId(user.id);
+
+    const [shelvesRes, booksRes, friendshipsRes, recsRes] = await Promise.all([
+      supabase.from("shelves").select("*").eq("owner_id", user.id).order("sort_order"),
+      supabase.from("books").select("*").eq("owner_id", user.id),
+      supabase.from("friendships").select("*").or(`requester_id.eq.${user.id},addressee_id.eq.${user.id}`),
+      supabase.from("recommendations").select("*").eq("to_id", user.id).order("created_at", { ascending: false }),
+    ]);
+
+    setMyShelves((shelvesRes.data as Shelf[]) || []);
+    setMyBooks((booksRes.data as Book[]) || []);
+
+    const friendships = (friendshipsRes.data as Friendship[]) || [];
+    const otherIds = new Set<string>();
+    friendships.forEach((f) => otherIds.add(f.requester_id === user.id ? f.addressee_id : f.requester_id));
+    (recsRes.data as Recommendation[] | null)?.forEach((r) => otherIds.add(r.from_id));
+
+    const profileMap: Record<string, Profile> = {};
+    if (otherIds.size > 0) {
+      const { data: profiles } = await supabase.from("profiles").select("*").in("id", Array.from(otherIds));
+      (profiles as Profile[] | null)?.forEach((p) => (profileMap[p.id] = p));
+    }
+
+    const incomingList: { friendship: Friendship; profile: Profile }[] = [];
+    const outgoingList: { friendship: Friendship; profile: Profile }[] = [];
+    const acceptedList: Friendship[] = [];
+
+    friendships.forEach((f) => {
+      if (f.status === "pending") {
+        if (f.addressee_id === user.id) {
+          const p = profileMap[f.requester_id];
+          if (p) incomingList.push({ friendship: f, profile: p });
+        } else {
+          const p = profileMap[f.addressee_id];
+          if (p) outgoingList.push({ friendship: f, profile: p });
+        }
+      } else if (f.status === "accepted") {
+        acceptedList.push(f);
+      }
+    });
+    setIncoming(incomingList);
+    setOutgoing(outgoingList);
+
+    const cards: FriendCard[] = [];
+    for (const f of acceptedList) {
+      const otherId = f.requester_id === user.id ? f.addressee_id : f.requester_id;
+      const p = profileMap[otherId];
+      if (!p) continue;
+      const [{ data: theirBooks }, { data: theirShelves }] = await Promise.all([
+        supabase.from("books").select("id, shelf_id").eq("owner_id", otherId),
+        supabase.from("shelves").select("id, color").eq("owner_id", otherId),
+      ]);
+      const colorById: Record<string, string> = {};
+      (theirShelves as { id: string; color: string }[] | null)?.forEach((s) => (colorById[s.id] = s.color));
+      const preview = ((theirBooks as { id: string; shelf_id: string }[] | null) || [])
+        .slice(0, 6)
+        .map((b) => colorById[b.shelf_id] || "#6E6B5E");
+      cards.push({ profile: p, friendshipId: f.id, bookCount: theirBooks?.length || 0, previewColors: preview });
+    }
+    setFriends(cards);
+
+    const recList = ((recsRes.data as Recommendation[]) || []).map((r) => ({ rec: r, from: profileMap[r.from_id] || null }));
+    setRecommendations(recList);
+
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    // Il fetch iniziale popola più pezzi di stato correlati (richieste, amici, consigli):
+    // è intenzionale farlo qui, una sola volta al montaggio.
+    /* eslint-disable react-hooks/set-state-in-effect */
+    loadAll();
+    /* eslint-enable react-hooks/set-state-in-effect */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function sendRequest() {
+    const email = inviteEmail.trim().toLowerCase();
+    setInviteMsg(null);
+    if (!email || !userId) return;
+    setInviteBusy(true);
+    try {
+      const { data: found } = await supabase.from("profiles").select("*").eq("email", email).maybeSingle();
+      if (!found) {
+        setInviteMsg("Nessun utente Joshly registrato con questa email.");
+        return;
+      }
+      if (found.id === userId) {
+        setInviteMsg("Non puoi inviare una richiesta a te stesso.");
+        return;
+      }
+      const { error } = await supabase.from("friendships").insert({ requester_id: userId, addressee_id: found.id });
+      if (error) {
+        if (error.code === "23505") setInviteMsg("Avete già una richiesta o amicizia in corso.");
+        else setInviteMsg(error.message);
+        return;
+      }
+      setInviteMsg("Richiesta inviata a " + found.display_name + ".");
+      setInviteEmail("");
+      loadAll();
+    } finally {
+      setInviteBusy(false);
+    }
+  }
+
+  async function respond(friendshipId: string, status: "accepted" | "declined") {
+    await supabase.from("friendships").update({ status }).eq("id", friendshipId);
+    loadAll();
+  }
+
+  async function openFriendShelf(profile: Profile) {
+    setViewingFriend(profile);
+    const [{ data: shelves }, { data: booksData }] = await Promise.all([
+      supabase.from("shelves").select("*").eq("owner_id", profile.id).order("sort_order"),
+      supabase.from("books").select("*").eq("owner_id", profile.id).order("created_at", { ascending: false }),
+    ]);
+    setFriendShelves((shelves as Shelf[]) || []);
+    const books = (booksData as Book[]) || [];
+    setFriendBooks(books);
+
+    if (books.length) {
+      const ids = books.map((b) => b.id);
+      const [{ data: quotes }, { data: marks }] = await Promise.all([
+        supabase.from("quotes").select("*").in("book_id", ids),
+        supabase.from("bookmarks").select("*").in("book_id", ids),
+      ]);
+      const qMap: Record<string, Quote[]> = {};
+      (quotes as Quote[] | null)?.forEach((q) => (qMap[q.book_id] ||= []).push(q));
+      setFriendQuotes(qMap);
+      const bMap: Record<string, Bookmark[]> = {};
+      (marks as Bookmark[] | null)?.forEach((m) => (bMap[m.book_id] ||= []).push(m));
+      setFriendMarks(bMap);
+    } else {
+      setFriendQuotes({});
+      setFriendMarks({});
+    }
+  }
+
+  function closeFriendShelf() {
+    setViewingFriend(null);
+    setFriendBooks([]);
+    setFriendShelves([]);
+    setCoverOpen(false);
+    setCoverBookId(null);
+    setAddedBookIds(new Set());
+  }
+
+  async function addFriendBookToLibrary(book: Book) {
+    if (!userId || addedBookIds.has(book.id)) return;
+    // Proviamo a mettere il libro sullo scaffale con lo stesso nome che ha
+    // dal tuo amico (es. "Teologia"), altrimenti finisce su "Altro".
+    const friendShelf = friendShelves.find((s) => s.id === book.shelf_id);
+    const matchingShelf =
+      (friendShelf && myShelves.find((s) => s.name === friendShelf.name)) ||
+      myShelves.find((s) => s.name === "Altro");
+    if (!matchingShelf) return;
+    const { error } = await supabase.from("books").insert({
+      owner_id: userId,
+      shelf_id: matchingShelf.id,
+      title: book.title,
+      author: book.author,
+      pages: book.pages,
+      status: "desiderio",
+      rating: 0,
+      current_page: 0,
+      review: "",
+      cover_url: book.cover_url,
+      isbn: book.isbn,
+    });
+    if (!error) {
+      setAddedBookIds((prev) => new Set(prev).add(book.id));
+    }
+  }
+
+  async function recommendBook(book: Book) {
+    if (!userId || !viewingFriend) return;
+    const note = window.prompt(`Un messaggio per ${viewingFriend.display_name} su "${book.title}"? (facoltativo)`, "");
+    if (note === null) return;
+    await supabase.from("recommendations").insert({
+      from_id: userId,
+      to_id: viewingFriend.id,
+      title: book.title,
+      author: book.author,
+      note: note || "",
+    });
+    closeCover();
+  }
+
+  async function dismissRecommendation(id: string) {
+    setRecommendations((prev) => prev.filter((r) => r.rec.id !== id));
+    await supabase.from("recommendations").delete().eq("id", id);
+  }
+
+  async function addRecommendationToWishlist(rec: Recommendation) {
+    const altro = myShelves.find((s) => s.name === "Altro");
+    if (!altro || !userId) return;
+    await supabase.from("books").insert({
+      owner_id: userId,
+      shelf_id: altro.id,
+      title: rec.title,
+      author: rec.author,
+      status: "desiderio",
+      rating: 0,
+      current_page: 0,
+      review: "",
+    });
+    dismissRecommendation(rec.id);
+  }
+
+  const friendBooksByShelf = useMemo(() => {
+    const map: Record<string, Book[]> = {};
+    friendBooks.forEach((b) => (map[b.shelf_id] ||= []).push(b));
+    return map;
+  }, [friendBooks]);
+
+  const coverBook = friendBooks.find((b) => b.id === coverBookId) || null;
+  const coverShelf = coverBook ? friendShelves.find((s) => s.id === coverBook.shelf_id) : null;
+
+  const stats: Stats = useMemo(() => {
+    const letti = myBooks.filter((b) => b.status === "letto");
+    const lettura = myBooks.filter((b) => b.status === "lettura");
+    const pagineLette =
+      letti.reduce((s, b) => s + (b.pages || 0), 0) + lettura.reduce((s, b) => s + (b.current_page || 0), 0);
+    const rated = letti.filter((b) => b.rating > 0);
+    const votoMedio = rated.length ? rated.reduce((s, b) => s + b.rating, 0) / rated.length : null;
+    return { letti: letti.length, pagineLette, votoMedio, inLettura: lettura.length };
+  }, [myBooks]);
+
+  if (loading) return <div className="loading-shell">Sto radunando i tuoi amici…</div>;
+
+  if (viewingFriend) {
+    return (
+      <>
+        <AppShell stats={stats} pendingRequests={incoming.length}>
+          <button className="text-btn" style={{ marginTop: 20 }} onClick={closeFriendShelf}>
+            ← Torna agli amici
+          </button>
+          <h2 style={{ margin: "10px 0 4px" }}>Scaffale di {viewingFriend.display_name}</h2>
+          <p style={{ color: "var(--ink-soft)", fontSize: "0.85rem", marginBottom: 20 }}>
+            Sola lettura — clicca un libro per vederlo, aggiungerlo alla tua lista o consigliarlo.
+          </p>
+          <Bookcase
+            shelves={friendShelves}
+            booksByShelf={friendBooksByShelf}
+            readOnly
+            onOpenBook={(b) => openCover(b.id)}
+            emptyMessage="Nessun libro qui."
+          />
+        </AppShell>
+
+        <CoverModal
+          open={coverOpen}
+          book={coverBook}
+          shelfName={coverShelf?.name || ""}
+          shelfIcon={coverShelf?.icon || "Altro"}
+          color={coverShelf?.color || "#C9A24B"}
+          quotes={coverBook ? friendQuotes[coverBook.id] || [] : []}
+          bookmarks={coverBook ? friendMarks[coverBook.id] || [] : []}
+          readOnly
+          onClose={closeCover}
+          onRecommendToFriend={() => coverBook && recommendBook(coverBook)}
+          onAddToLibrary={() => coverBook && addFriendBookToLibrary(coverBook)}
+          addedToLibrary={coverBook ? addedBookIds.has(coverBook.id) : false}
+        />
+        {coverOpen && <div className="scrim open" onClick={closeCover} />}
+      </>
+    );
+  }
+
+  return (
+    <AppShell stats={stats} pendingRequests={incoming.length}>
+      <p className="friends-note">
+        <b>Amici.</b> Cerca un amico per email per vedere il suo scaffale e consigliargli libri. Deve avere già un
+        account Joshly.
+      </p>
+
+      <div className="invite-row">
+        <input
+          type="email"
+          placeholder="email@amico.it"
+          value={inviteEmail}
+          onChange={(e) => setInviteEmail(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && sendRequest()}
+        />
+        <button onClick={sendRequest} disabled={inviteBusy || !inviteEmail.trim()}>
+          Invia richiesta
+        </button>
+      </div>
+      {inviteMsg && <p className="search-hint" style={{ marginBottom: 20 }}>{inviteMsg}</p>}
+
+      {incoming.length > 0 && (
+        <>
+          <div className="section-heading">Richieste ricevute</div>
+          {incoming.map(({ friendship, profile }) => (
+            <div className="request-row" key={friendship.id}>
+              <div className="who">
+                {profile.display_name}
+                <small>{profile.email}</small>
+              </div>
+              <button className="pill-btn accept" onClick={() => respond(friendship.id, "accepted")}>
+                Accetta
+              </button>
+              <button className="pill-btn decline" onClick={() => respond(friendship.id, "declined")}>
+                Rifiuta
+              </button>
+            </div>
+          ))}
+        </>
+      )}
+
+      {outgoing.length > 0 && (
+        <>
+          <div className="section-heading">Richieste inviate</div>
+          {outgoing.map(({ friendship, profile }) => (
+            <div className="request-row" key={friendship.id}>
+              <div className="who">
+                {profile.display_name}
+                <small>In attesa di risposta</small>
+              </div>
+            </div>
+          ))}
+        </>
+      )}
+
+      {recommendations.length > 0 && (
+        <>
+          <div className="section-heading">Consigli ricevuti</div>
+          {recommendations.map(({ rec, from }) => (
+            <div className="rec-row" key={rec.id}>
+              <div className="who">
+                <b>{rec.title}</b> — {rec.author}
+                <small>
+                  da {from?.display_name || "un amico"} {rec.note ? "· " + rec.note : ""}
+                </small>
+              </div>
+              <button className="pill-btn accept" onClick={() => addRecommendationToWishlist(rec)}>
+                Aggiungi alla lista
+              </button>
+              <button className="pill-btn decline" onClick={() => dismissRecommendation(rec.id)}>
+                Ignora
+              </button>
+            </div>
+          ))}
+        </>
+      )}
+
+      <div className="section-heading">I tuoi amici</div>
+      {friends.length === 0 ? (
+        <p className="empty-note">Non hai ancora amici su Joshly. Invitane uno con la sua email qui sopra.</p>
+      ) : (
+        <div className="friend-grid">
+          {friends.map((f) => (
+            <div className="friend-card" key={f.friendshipId}>
+              <div className="friend-avatar">{f.profile.display_name.charAt(0).toUpperCase()}</div>
+              <div className="friend-name">{f.profile.display_name}</div>
+              <div className="friend-meta">{f.bookCount} libri sullo scaffale</div>
+              <div className="friend-shelf-preview">
+                {f.previewColors.map((c, i) => (
+                  <span key={i} style={{ height: 26 + ((i * 7) % 16), background: c }} />
+                ))}
+              </div>
+              <button className="friend-btn" onClick={() => openFriendShelf(f.profile)}>
+                Vedi scaffale completo
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </AppShell>
+  );
+}

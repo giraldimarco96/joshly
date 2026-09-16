@@ -22,6 +22,8 @@ export function CoverModal({
   onAddBookmark,
   onDeleteBookmark,
   onRecommendToFriend,
+  onAddToLibrary,
+  addedToLibrary = false,
 }: {
   open: boolean;
   book: Book | null;
@@ -39,6 +41,8 @@ export function CoverModal({
   onAddBookmark?: (page: number, note: string) => void;
   onDeleteBookmark?: (id: string) => void;
   onRecommendToFriend?: () => void;
+  onAddToLibrary?: () => void;
+  addedToLibrary?: boolean;
 }) {
   const [review, setReview] = useState("");
   const [quoteInput, setQuoteInput] = useState("");
@@ -235,8 +239,19 @@ export function CoverModal({
             )}
           </div>
 
+          {readOnly && onAddToLibrary && (
+            <button
+              className="primary-btn"
+              style={{ width: "100%", marginBottom: 10 }}
+              onClick={onAddToLibrary}
+              disabled={addedToLibrary}
+            >
+              {addedToLibrary ? "Aggiunto alla tua lista ✓" : "Aggiungi alla tua lista"}
+            </button>
+          )}
+
           {readOnly && onRecommendToFriend && (
-            <button className="primary-btn" style={{ width: "100%", marginBottom: 12 }} onClick={onRecommendToFriend}>
+            <button className="secondary-btn" style={{ width: "100%", marginBottom: 12 }} onClick={onRecommendToFriend}>
               Consiglialo a un amico
             </button>
           )}
