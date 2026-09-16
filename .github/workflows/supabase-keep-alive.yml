@@ -1,0 +1,27 @@
+name: Supabase keep-alive
+
+# Il piano gratuito di Supabase mette in pausa un progetto dopo circa una
+# settimana senza attività. Questa Action fa una piccola richiesta al
+# progetto due volte a settimana, cosi' Supabase lo considera "attivo" e
+# non lo mette mai in pausa.
+
+on:
+  schedule:
+    # Ogni lunedì e giovedì alle 8:00 UTC (ampio margine sotto la soglia di ~7 giorni)
+    - cron: "0 8 * * 1,4"
+  workflow_dispatch: {} # permette anche di lanciarla a mano da GitHub, per testarla
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Richiesta di "risveglio" a Supabase
+        run: |
+          http_status=$(curl -sS -o /dev/null -w "%{http_code}" \
+            "${{ secrets.SUPABASE_URL }}/rest/v1/" \
+            -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}")
+          echo "Risposta da Supabase: HTTP $http_status"
+          if [ "$http_status" -ge 400 ]; then
+            echo "Attenzione: risposta inattesa da Supabase."
+            exit 1
+          fi

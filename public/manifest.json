@@ -1,0 +1,16 @@
+{
+  "name": "Joshly",
+  "short_name": "Joshly",
+  "description": "La tua libreria personale: scaffali per genere, stati di lettura, citazioni, segnalibri, recensioni e amici.",
+  "start_url": "/library",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#12140F",
+  "theme_color": "#12140F",
+  "orientation": "portrait-primary",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
