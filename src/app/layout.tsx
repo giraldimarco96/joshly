@@ -1,7 +1,14 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
+// Indirizzo pubblico del sito, usato per generare link assoluti corretti
+// (es. l'immagine di anteprima quando condividi il link). Va impostato come
+// variabile d'ambiente NEXT_PUBLIC_SITE_URL su Vercel con l'indirizzo vero
+// del sito pubblicato — altrimenti si userebbe "localhost" anche online.
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+
 export const metadata: Metadata = {
+  metadataBase: new URL(siteUrl),
   title: "Joshly",
   description:
     "La tua libreria personale: scaffali per genere, stati di lettura, citazioni, segnalibri, recensioni e amici con cui condividerla.",
@@ -10,6 +17,16 @@ export const metadata: Metadata = {
     capable: true,
     statusBarStyle: "black-translucent",
     title: "Joshly",
+  },
+  openGraph: {
+    title: "Joshly",
+    description:
+      "La tua libreria personale: scaffali per genere, stati di lettura, citazioni, segnalibri, recensioni e amici con cui condividerla.",
+    type: "website",
+    locale: "it_IT",
+  },
+  twitter: {
+    card: "summary_large_image",
   },
 };
 
