@@ -542,17 +542,23 @@ header.top {
   transform: rotate(180deg);
   font-family: var(--font-display);
   font-weight: 600;
-  font-size: 0.7rem;
-  color: rgba(236, 232, 218, 0.94);
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  font-size: 0.76rem;
+  color: rgba(236, 232, 218, 0.96);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
   max-height: 100%;
   overflow: hidden;
   white-space: nowrap;
-  letter-spacing: 0.01em;
+  letter-spacing: 0.03em;
+}
+/* Quando c'è la valutazione a stelle, lasciamo per lei uno spazio dedicato
+   in alto (sotto la lineetta decorativa) invece di farla sovrapporre al
+   testo verticale del titolo, che altrimenti finiva coperto in fondo. */
+.spine.has-stars .spine-label {
+  max-height: calc(100% - 22px);
 }
 .spine .stars-mini {
   position: absolute;
-  bottom: 4px;
+  top: 15px;
   left: 50%;
   transform: translateX(-50%) rotate(90deg);
   font-size: 6px;

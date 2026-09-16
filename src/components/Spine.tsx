@@ -18,9 +18,11 @@ export function Spine({
   onClick: () => void;
   onAnimEnd?: () => void;
 }) {
+  const hasStars = book.status === "letto" && book.rating > 0;
   const classes = ["spine", `st-${book.status}`];
   if (entering) classes.push("entering");
   if (leaving) classes.push("leaving");
+  if (hasStars) classes.push("has-stars");
 
   return (
     <button
@@ -43,9 +45,7 @@ export function Spine({
     >
       <span className="spine-cap" />
       <span className="spine-label">{book.title}</span>
-      {book.status === "letto" && book.rating > 0 && (
-        <span className="stars-mini">{starsString(book.rating)}</span>
-      )}
+      {hasStars && <span className="stars-mini">{starsString(book.rating)}</span>}
     </button>
   );
 }
