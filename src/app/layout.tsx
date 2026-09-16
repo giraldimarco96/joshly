@@ -5,10 +5,26 @@ import "./globals.css";
 // (es. l'immagine di anteprima quando condividi il link). Va impostato come
 // variabile d'ambiente NEXT_PUBLIC_SITE_URL su Vercel con l'indirizzo vero
 // del sito pubblicato — altrimenti si userebbe "localhost" anche online.
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+// Tollerante anche se qualcuno dimentica "https://" davanti al dominio,
+// per non far fallire la build per una svista nella configurazione.
+function resolveSiteUrl(): URL {
+  const raw = process.env.NEXT_PUBLIC_SITE_URL?.trim();
+  if (!raw) return new URL("http://localhost:3000");
+  try {
+    return new URL(raw);
+  } catch {
+    try {
+      return new URL(`https://${raw}`);
+    } catch {
+      return new URL("http://localhost:3000");
+    }
+  }
+}
+
+const siteUrl = resolveSiteUrl();
 
 export const metadata: Metadata = {
-  metadataBase: new URL(siteUrl),
+  metadataBase: siteUrl,
   title: "Joshly",
   description:
     "La tua libreria personale: scaffali per genere, stati di lettura, citazioni, segnalibri, recensioni e amici con cui condividerla.",
