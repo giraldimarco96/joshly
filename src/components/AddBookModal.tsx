@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { Shelf, BookStatus, STATUSES } from "@/lib/types";
 import { ShelfIcon } from "@/lib/icons";
-import { OpenLibraryResult, looksLikeIsbn, searchByIsbn, searchByTitle } from "@/lib/openLibrary";
+import { BookResult as OpenLibraryResult, looksLikeIsbn, searchBookByIsbn, searchBooksByTitle } from "@/lib/bookSearch";
 import { BarcodeScanner } from "./BarcodeScanner";
 
 export type NewBookInput = {
@@ -77,11 +77,11 @@ export function AddBookModal({
     setResults([]);
     try {
       if (looksLikeIsbn(q)) {
-        const r = await searchByIsbn(q);
+        const r = await searchBookByIsbn(q);
         setResults(r ? [r] : []);
         if (!r) setSearchError("Nessun libro trovato con questo ISBN. Puoi inserirlo a mano qui sotto.");
       } else {
-        const r = await searchByTitle(q);
+        const r = await searchBooksByTitle(q);
         setResults(r);
         if (r.length === 0) setSearchError("Nessun risultato. Puoi inserirlo a mano qui sotto.");
       }
@@ -104,7 +104,7 @@ export function AddBookModal({
   function onIsbnScanned(isbn: string) {
     setShowScanner(false);
     setQuery(isbn);
-    searchByIsbn(isbn)
+    searchBookByIsbn(isbn)
       .then((r) => {
         if (r) pickResult(r);
         else setSearchError("ISBN letto (" + isbn + ") ma nessun libro trovato: inseriscilo a mano.");
