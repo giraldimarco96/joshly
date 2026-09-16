@@ -18,7 +18,7 @@ jobs:
       - name: Richiesta di "risveglio" a Supabase
         run: |
           http_status=$(curl -sS -o /dev/null -w "%{http_code}" \
-            "${{ secrets.SUPABASE_URL }}/rest/v1/" \
+            "${{ secrets.SUPABASE_URL }}/rest/v1/shelves?select=id&limit=1" \
             -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}")
           echo "Risposta da Supabase: HTTP $http_status"
           if [ "$http_status" -ge 400 ]; then
