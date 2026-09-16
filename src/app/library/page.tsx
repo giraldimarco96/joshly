@@ -379,7 +379,7 @@ export default function LibraryPage() {
         )}
       </AppShell>
 
-      <AddBookModal open={addOpen} shelves={shelves} onClose={() => setAddOpen(false)} onSave={handleAddBook} />
+      <AddBookModal open={addOpen} shelves={shelves} userId={userId} onClose={() => setAddOpen(false)} onSave={handleAddBook} />
 
       <NewShelfModal
         open={newShelfOpen}

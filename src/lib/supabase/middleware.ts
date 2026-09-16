@@ -30,9 +30,14 @@ export async function updateSession(request: NextRequest) {
 
   const path = request.nextUrl.pathname;
   const isAuthPage = path.startsWith("/login") || path.startsWith("/signup");
+  // Pagine di recupero password: devono restare accessibili anche senza sessione
+  // (il link ricevuto via email crea la sessione temporanea lato client, dopo
+  // che questa richiesta server-side è già stata gestita) e anche a chi ha già
+  // una sessione attiva altrove, quindi non vanno rimandate via da qui.
+  const isPasswordRecoveryPage = path.startsWith("/recupera-password") || path.startsWith("/nuova-password");
   const isPublicAsset = path.startsWith("/_next") || path.startsWith("/manifest") || path.startsWith("/sw.js");
 
-  if (!user && !isAuthPage && !isPublicAsset && path !== "/") {
+  if (!user && !isAuthPage && !isPasswordRecoveryPage && !isPublicAsset && path !== "/") {
     const redirectUrl = request.nextUrl.clone();
     redirectUrl.pathname = "/login";
     return NextResponse.redirect(redirectUrl);

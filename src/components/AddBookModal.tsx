@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Shelf, BookStatus, STATUSES } from "@/lib/types";
 import { ShelfIcon } from "@/lib/icons";
 import { BookResult as OpenLibraryResult, looksLikeIsbn, searchBookByIsbn, searchBooksByTitle } from "@/lib/bookSearch";
 import { BarcodeScanner } from "./BarcodeScanner";
+import { createClient } from "@/lib/supabase/client";
 
 export type NewBookInput = {
   title: string;
@@ -22,11 +23,13 @@ export type NewBookInput = {
 export function AddBookModal({
   open,
   shelves,
+  userId,
   onClose,
   onSave,
 }: {
   open: boolean;
   shelves: Shelf[];
+  userId?: string | null;
   onClose: () => void;
   onSave: (data: NewBookInput) => Promise<void> | void;
 }) {
@@ -36,6 +39,10 @@ export function AddBookModal({
   const [results, setResults] = useState<OpenLibraryResult[]>([]);
   const [picked, setPicked] = useState<OpenLibraryResult | null>(null);
   const [showScanner, setShowScanner] = useState(false);
+  const [coverUrl, setCoverUrl] = useState<string | null>(null);
+  const [coverUploading, setCoverUploading] = useState(false);
+  const [coverError, setCoverError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [title, setTitle] = useState("");
   const [author, setAuthor] = useState("");
@@ -57,6 +64,8 @@ export function AddBookModal({
     setPicked(null);
     setSearchError(null);
     setShowScanner(false);
+    setCoverUrl(null);
+    setCoverError(null);
     setTitle("");
     setAuthor("");
     setPages("");
@@ -69,12 +78,10 @@ export function AddBookModal({
     /* eslint-enable react-hooks/set-state-in-effect */
   }, [open, shelves]);
 
-  async function runSearch() {
-    const q = query.trim();
+  async function runSearch(q: string) {
     if (!q) return;
     setSearching(true);
     setSearchError(null);
-    setResults([]);
     try {
       if (looksLikeIsbn(q)) {
         const r = await searchBookByIsbn(q);
@@ -92,24 +99,85 @@ export function AddBookModal({
     }
   }
 
+  // Ricerca automatica mentre l'utente scrive (con una piccola pausa per non
+  // martellare l'API a ogni tasto premuto), così i risultati compaiono da soli.
+  useEffect(() => {
+    if (!open) return;
+    const q = query.trim();
+    if (q.length < 2) {
+      /* eslint-disable react-hooks/set-state-in-effect */
+      setResults([]);
+      setSearchError(null);
+      /* eslint-enable react-hooks/set-state-in-effect */
+      return;
+    }
+    const timer = setTimeout(() => {
+      runSearch(q);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [query, open]);
+
   function pickResult(r: OpenLibraryResult) {
     setPicked(r);
     setTitle(r.title);
     setAuthor(r.author);
     if (r.pages) setPages(String(r.pages));
     if (r.year) setYear(String(r.year));
+    if (r.coverUrl) setCoverUrl(r.coverUrl);
     setResults([]);
+    setSearchError(null);
+  }
+
+  async function handleCoverFile(file: File | null) {
+    if (!file) return;
+    setCoverError(null);
+    if (!file.type.startsWith("image/")) {
+      setCoverError("Scegli un file immagine (JPG, PNG…).");
+      return;
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      setCoverError("L'immagine è troppo grande (max 8 MB).");
+      return;
+    }
+    setCoverUploading(true);
+    try {
+      const supabase = createClient();
+      const owner = userId || (await supabase.auth.getUser()).data.user?.id;
+      if (!owner) throw new Error("Devi essere autenticato per caricare una copertina.");
+      const ext = file.name.split(".").pop()?.toLowerCase().replace(/[^a-z0-9]/g, "") || "jpg";
+      const path = `${owner}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+      const { error: uploadError } = await supabase.storage.from("covers").upload(path, file, {
+        cacheControl: "3600",
+        upsert: false,
+      });
+      if (uploadError) throw uploadError;
+      const { data } = supabase.storage.from("covers").getPublicUrl(path);
+      setCoverUrl(data.publicUrl);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setCoverError("Caricamento non riuscito: " + message);
+    } finally {
+      setCoverUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
+
+  function onQueryChange(v: string) {
+    setQuery(v);
+    if (picked) setPicked(null);
   }
 
   function onIsbnScanned(isbn: string) {
     setShowScanner(false);
     setQuery(isbn);
+    setSearching(true);
     searchBookByIsbn(isbn)
       .then((r) => {
         if (r) pickResult(r);
         else setSearchError("ISBN letto (" + isbn + ") ma nessun libro trovato: inseriscilo a mano.");
       })
-      .catch(() => setSearchError("ISBN letto, ma la ricerca è fallita. Inseriscilo a mano."));
+      .catch(() => setSearchError("ISBN letto, ma la ricerca è fallita. Inseriscilo a mano."))
+      .finally(() => setSearching(false));
   }
 
   async function handleSave() {
@@ -133,7 +201,7 @@ export function AddBookModal({
         status,
         rating: status === "desiderio" ? 0 : rating,
         currentPage: status === "lettura" ? parseInt(currentPage, 10) || 0 : 0,
-        coverUrl: picked?.coverUrl || null,
+        coverUrl: coverUrl || null,
         isbn: picked?.isbn || null,
       });
     } finally {
@@ -158,17 +226,19 @@ export function AddBookModal({
                 type="text"
                 placeholder="Es. Il Nome della Rosa, oppure un ISBN…"
                 value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), runSearch())}
+                onChange={(e) => onQueryChange(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), runSearch(query.trim()))}
               />
-              <button type="button" onClick={runSearch} disabled={searching}>
+              <button type="button" onClick={() => runSearch(query.trim())} disabled={searching || query.trim().length < 2}>
                 {searching ? "…" : "Cerca"}
               </button>
               <button type="button" className="cam-btn" onClick={() => setShowScanner((s) => !s)} title="Scansiona ISBN">
                 📷
               </button>
             </div>
-            <p className="search-hint">La scansione da fotocamera funziona sui browser che la supportano (es. Chrome su Android).</p>
+            <p className="search-hint">
+              I risultati compaiono da soli mentre scrivi. La scansione da fotocamera funziona sui browser che la supportano (es. Chrome su Android).
+            </p>
 
             {showScanner && <BarcodeScanner onDetected={onIsbnScanned} onClose={() => setShowScanner(false)} />}
 
@@ -192,10 +262,43 @@ export function AddBookModal({
 
             {picked && (
               <div className="selected-pick">
-                {picked.coverUrl ? <img src={picked.coverUrl} alt="" style={{ width: 24, height: 36, objectFit: "cover" }} /> : null}
+                {coverUrl ? <img src={coverUrl} alt="" style={{ width: 24, height: 36, objectFit: "cover" }} /> : null}
                 Selezionato: {picked.title}
               </div>
             )}
+          </div>
+
+          <div className="field">
+            <label>Copertina</label>
+            <div className="cover-picker">
+              <div className="cover-picker-preview">
+                {coverUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={coverUrl} alt="" />
+                ) : (
+                  <ShelfIcon name="Altro" size={20} />
+                )}
+              </div>
+              <div className="cover-picker-actions">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  style={{ display: "none" }}
+                  onChange={(e) => handleCoverFile(e.target.files?.[0] || null)}
+                />
+                <button type="button" onClick={() => fileInputRef.current?.click()} disabled={coverUploading}>
+                  {coverUploading ? "Caricamento…" : "Scatta o scegli una foto"}
+                </button>
+                {coverUrl && (
+                  <button type="button" className="text-btn" onClick={() => setCoverUrl(null)}>
+                    Rimuovi copertina
+                  </button>
+                )}
+              </div>
+            </div>
+            <p className="search-hint">Puoi anche usare la copertina trovata cercando il libro qui sopra.</p>
+            {coverError && <p className="error-text">{coverError}</p>}
           </div>
 
           <div className="field">
